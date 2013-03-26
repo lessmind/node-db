@@ -387,7 +387,7 @@ v8::Handle<v8::Value> node_db::Query::Delete(const v8::Arguments& args) {
         escape = args[1]->IsTrue();
     }
 
-    query->sql << "DELETE";
+    query->sql << "DELETE FROM";
 
     if (args.Length() > 0) {
         try {
