@@ -25,6 +25,7 @@ void node_db::Query::Init(v8::Handle<v8::Object> target, v8::Persistent<v8::Func
     NODE_ADD_PROTOTYPE_METHOD(constructorTemplate, "limit", Limit);
     NODE_ADD_PROTOTYPE_METHOD(constructorTemplate, "add", Add);
     NODE_ADD_PROTOTYPE_METHOD(constructorTemplate, "insert", Insert);
+    NODE_ADD_PROTOTYPE_METHOD(constructorTemplate, "replace", Replace);
     NODE_ADD_PROTOTYPE_METHOD(constructorTemplate, "update", Update);
     NODE_ADD_PROTOTYPE_METHOD(constructorTemplate, "set", Set);
     NODE_ADD_PROTOTYPE_METHOD(constructorTemplate, "delete", Delete);
@@ -395,6 +396,112 @@ v8::Handle<v8::Value> node_db::Query::Delete(const v8::Arguments& args) {
         } catch(const node_db::Exception& exception) {
             THROW_EXCEPTION(exception.what());
         }
+    }
+
+    return scope.Close(args.This());
+}
+
+v8::Handle<v8::Value> node_db::Query::Replace(const v8::Arguments& args) {
+    v8::HandleScope scope;
+    uint32_t argsLength = args.Length();
+
+    int fieldsIndex = -1, valuesIndex = -1;
+
+    if (argsLength > 0) {
+        ARG_CHECK_STRING(0, table);
+
+        if (argsLength > 2) {
+            if (args[1]->IsArray()) {
+                ARG_CHECK_ARRAY(1, fields);
+            } else if (args[1]->IsObject()) {
+                ARG_CHECK_OBJECT(1, fields);
+            } else if (!args[1]->IsFalse()) {
+                ARG_CHECK_STRING(1, fields);
+            }
+            fieldsIndex = 1;
+
+            if (!args[2]->IsFalse()) {
+                valuesIndex = 2;
+                ARG_CHECK_ARRAY(2, values);
+            }
+
+            ARG_CHECK_OPTIONAL_BOOL(3, escape);
+        } else if (argsLength > 1) {
+            ARG_CHECK_ARRAY(1, values);
+            valuesIndex = 1;
+        }
+    } else {
+        ARG_CHECK_STRING(0, table);
+    }
+
+    node_db::Query *query = node::ObjectWrap::Unwrap<node_db::Query>(args.This());
+    assert(query);
+
+    bool escape = true;
+    if (argsLength > 3) {
+        escape = args[3]->IsTrue();
+    }
+
+    try {
+        query->sql << "REPLACE INTO " << query->tableName(args[0], escape);
+    } catch(const node_db::Exception& exception) {
+        THROW_EXCEPTION(exception.what());
+    }
+
+    if (argsLength > 1) {
+        if (fieldsIndex != -1) {
+            query->sql << "(";
+            if (args[fieldsIndex]->IsArray()) {
+                v8::Local<v8::Array> fields = v8::Array::Cast(*args[fieldsIndex]);
+                if (fields->Length() == 0) {
+                    THROW_EXCEPTION("No fields specified in replace")
+                }
+
+                for (uint32_t i = 0, limiti = fields->Length(); i < limiti; i++) {
+                    if (i > 0) {
+                        query->sql << ",";
+                    }
+
+                    try {
+                        query->sql << query->fieldName(fields->Get(i));
+                    } catch(const node_db::Exception& exception) {
+                        THROW_EXCEPTION(exception.what())
+                    }
+                }
+            } else {
+                v8::String::Utf8Value fields(args[fieldsIndex]->ToString());
+                query->sql << *fields;
+            }
+            query->sql << ")";
+        }
+
+        query->sql << " ";
+
+        if (valuesIndex != -1) {
+            v8::Local<v8::Array> values = v8::Array::Cast(*args[valuesIndex]);
+            uint32_t valuesLength = values->Length();
+            if (valuesLength > 0) {
+                bool multipleRecords = values->Get(0)->IsArray();
+
+                query->sql << "VALUES ";
+                if (!multipleRecords) {
+                    query->sql << "(";
+                }
+
+                for (uint32_t i = 0; i < valuesLength; i++) {
+                    if (i > 0) {
+                        query->sql << ",";
+                    }
+                    query->sql << query->value(values->Get(i));
+                }
+
+                if (!multipleRecords) {
+                    query->sql << ")";
+                }
+            }
+        }
+    } else {
+        query->sql << " ";
     }
 
     return scope.Close(args.This());
